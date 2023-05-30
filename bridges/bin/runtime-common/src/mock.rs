@@ -46,7 +46,7 @@ use pallet_transaction_payment::Multiplier;
 use sp_runtime::{
 	testing::H256,
 	traits::{BlakeTwo256, ConstU32, ConstU64, ConstU8},
-	FixedPointNumber, Perquintill,
+	FixedPointNumber, Perquintill, StateVersion,
 };
 
 /// Account identifier at `ThisChain`.
@@ -327,6 +327,8 @@ impl Chain for ThisUnderlyingChain {
 	type Nonce = u32;
 	type Signature = sp_runtime::MultiSignature;
 
+	const STATE_VERSION: StateVersion = StateVersion::V1;
+
 	fn max_extrinsic_size() -> u32 {
 		BRIDGED_CHAIN_MAX_EXTRINSIC_SIZE
 	}
@@ -369,6 +371,8 @@ impl Chain for BridgedUnderlyingChain {
 	type Nonce = u32;
 	type Signature = sp_runtime::MultiSignature;
 
+	const STATE_VERSION: StateVersion = StateVersion::V1;
+
 	fn max_extrinsic_size() -> u32 {
 		BRIDGED_CHAIN_MAX_EXTRINSIC_SIZE
 	}
@@ -396,6 +400,8 @@ impl Chain for BridgedUnderlyingParachain {
 	type Balance = BridgedChainBalance;
 	type Nonce = u32;
 	type Signature = sp_runtime::MultiSignature;
+
+	const STATE_VERSION: StateVersion = StateVersion::V1;
 
 	fn max_extrinsic_size() -> u32 {
 		BRIDGED_CHAIN_MAX_EXTRINSIC_SIZE
