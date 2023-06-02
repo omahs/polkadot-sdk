@@ -18,7 +18,7 @@
 
 use crate::{
 	cli::{bridge::*, chain_schema::*, HexLaneId, PrometheusParams},
-	messages_lane::MessagesRelayParams,
+	messages::MessagesRelayParams,
 	TransactionParams,
 };
 
@@ -99,7 +99,7 @@ where
 		let target_sign = data.target_sign.to_keypair::<Self::Target>()?;
 		let target_transactions_mortality = data.target_sign.transactions_mortality()?;
 
-		crate::messages_lane::run::<Self::MessagesLane, _, _>(MessagesRelayParams {
+		crate::messages::run::<Self::MessagesLane, _, _>(MessagesRelayParams {
 			source_client,
 			source_transaction_params: TransactionParams {
 				signer: source_sign,
@@ -143,7 +143,7 @@ where
 			})?
 			.id();
 
-		crate::messages_lane::relay_messages_range::<Self::MessagesLane>(
+		crate::messages::relay_messages_range::<Self::MessagesLane>(
 			source_client,
 			target_client,
 			TransactionParams { signer: source_sign, mortality: source_transactions_mortality },
