@@ -53,6 +53,7 @@ xcm-builder = { package = "staging-xcm-builder", path = "../../../polkadot/xcm/x
 [dev-dependencies]
 bp-test-utils = { path = "../../primitives/test-utils" }
 pallet-balances = { path = "../../../substrate/frame/balances" }
+pallet-bridge-messages = { path = "../../modules/messages", features = ["std", "test-helpers"] }
 
 [features]
 default = ["std"]
@@ -93,6 +94,7 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-bridge-grandpa/runtime-benchmarks",
 	"pallet-bridge-messages/runtime-benchmarks",
+	"pallet-bridge-messages/test-helpers",
 	"pallet-bridge-parachains/runtime-benchmarks",
 	"pallet-bridge-relayers/runtime-benchmarks",
 	"pallet-utility/runtime-benchmarks",
