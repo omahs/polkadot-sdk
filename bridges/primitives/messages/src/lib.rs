@@ -167,9 +167,20 @@ impl OperatingMode for MessagesOperatingMode {
 
 /// Lane id which implements `TypeId`.
 #[derive(
-	Clone, Copy, Decode, Default, Encode, Eq, Ord, PartialOrd, PartialEq, TypeInfo, MaxEncodedLen,
+	Clone,
+	Copy,
+	Decode,
+	Default,
+	Encode,
+	Eq,
+	Ord,
+	PartialOrd,
+	PartialEq,
+	TypeInfo,
+	MaxEncodedLen,
+	Serialize,
+	Deserialize,
 )]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct LaneId(pub [u8; 4]);
 
 impl core::fmt::Debug for LaneId {
