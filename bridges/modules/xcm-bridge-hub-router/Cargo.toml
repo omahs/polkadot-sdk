@@ -17,6 +17,7 @@ scale-info = { version = "2.11.1", default-features = false, features = ["bit-ve
 
 # Bridge dependencies
 
+bp-xcm-bridge-hub = { path = "../../primitives/xcm-bridge-hub", default-features = false }
 bp-xcm-bridge-hub-router = { path = "../../primitives/xcm-bridge-hub-router", default-features = false }
 
 # Substrate Dependencies
@@ -41,6 +42,7 @@ sp-std = { path = "../../../substrate/primitives/std" }
 default = ["std"]
 std = [
 	"bp-xcm-bridge-hub-router/std",
+	"bp-xcm-bridge-hub/std",
 	"codec/std",
 	"frame-benchmarking/std",
 	"frame-support/std",

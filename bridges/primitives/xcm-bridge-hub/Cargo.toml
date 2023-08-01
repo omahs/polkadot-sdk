@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 codec = { package = "parity-scale-codec", version = "3.6.12", default-features = false, features = ["derive"] }
 scale-info = { version = "2.11.1", default-features = false, features = ["derive"] }
+serde = { features = ["alloc", "derive"], workspace = true }
 
 # Bridge Dependencies
 
@@ -35,6 +36,7 @@ std = [
 	"codec/std",
 	"frame-support/std",
 	"scale-info/std",
+	"serde/std",
 	"sp-std/std",
 	"xcm/std",
 ]
