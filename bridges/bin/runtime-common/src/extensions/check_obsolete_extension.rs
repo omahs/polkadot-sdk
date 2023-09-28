@@ -18,20 +18,10 @@
 //! obsolete (duplicated) data or do not pass some additional pallet-specific
 //! checks.
 
-use crate::extensions::refund_relayer_extension::RefundableParachainId;
-use bp_parachains::SubmitParachainHeadsInfo;
-use bp_relayers::ExplicitOrAccountParams;
-use bp_runtime::Parachain;
-use pallet_bridge_grandpa::{
-	BridgedBlockNumber, CallSubType as GrandpaCallSubType, SubmitFinalityProofHelper,
-};
+use pallet_bridge_grandpa::CallSubType as GrandpaCallSubType;
 use pallet_bridge_messages::CallSubType as MessagesCallSubType;
-use pallet_bridge_parachains::{CallSubType as ParachainsCallSubtype, SubmitParachainHeadsHelper};
-use pallet_bridge_relayers::Pallet as RelayersPallet;
-use sp_runtime::{
-	traits::{Get, PhantomData, UniqueSaturatedInto},
-	transaction_validity::{TransactionPriority, TransactionValidity, ValidTransactionBuilder},
-};
+use pallet_bridge_parachains::CallSubType as ParachainsCallSubtype;
+use sp_runtime::transaction_validity::{TransactionValidity, ValidTransactionBuilder};
 
 /// A duplication of the `FilterCall` trait.
 ///
@@ -49,128 +39,129 @@ pub trait BridgeRuntimeFilterCall<AccountId, Call> {
 	}
 }
 
-/// Wrapper for the bridge GRANDPA pallet that checks calls for obsolete submissions
-/// and also boosts transaction priority if it has submitted by registered relayer.
-/// The boost is computed as
-/// `(BundledHeaderNumber - 1 - BestFinalizedHeaderNumber) * Priority::get()`.
-/// The boost is only applied if submitter has active registration in the relayers
-/// pallet.
-pub struct CheckAndBoostBridgeGrandpaTransactions<T, I, Priority, SlashAccount>(
-	PhantomData<(T, I, Priority, SlashAccount)>,
-);
-
-impl<T, I: 'static, Priority: Get<TransactionPriority>, SlashAccount: Get<T::AccountId>>
-	BridgeRuntimeFilterCall<T::AccountId, T::RuntimeCall>
-	for CheckAndBoostBridgeGrandpaTransactions<T, I, Priority, SlashAccount>
-where
-	T: pallet_bridge_relayers::Config + pallet_bridge_grandpa::Config<I>,
-	T::RuntimeCall: GrandpaCallSubType<T, I>,
-{
-	// bridged header number, bundled in transaction
-	type ToPostDispatch = Option<BridgedBlockNumber<T, I>>;
-
-	fn validate(
-		who: &T::AccountId,
-		call: &T::RuntimeCall,
-	) -> (Self::ToPostDispatch, TransactionValidity) {
-		match GrandpaCallSubType::<T, I>::check_obsolete_submit_finality_proof(call) {
-			Ok(Some(our_tx)) => {
-				let to_post_dispatch = Some(our_tx.base.block_number);
-				let total_priority_boost =
-					compute_priority_boost::<T, _, Priority>(who, our_tx.improved_by);
-				(
-					to_post_dispatch,
-					ValidTransactionBuilder::default().priority(total_priority_boost).build(),
-				)
-			},
-			Ok(None) => (None, ValidTransactionBuilder::default().build()),
-			Err(e) => (None, Err(e)),
-		}
-	}
-
-	fn post_dispatch(
-		relayer: &T::AccountId,
-		has_failed: bool,
-		bundled_block_number: Self::ToPostDispatch,
-	) {
-		// we are only interested in associated pallet submissions
-		let Some(bundled_block_number) = bundled_block_number else { return };
-		// we are only interested in failed or unneeded transactions
-		let has_failed =
-			has_failed || !SubmitFinalityProofHelper::<T, I>::was_successful(bundled_block_number);
-
-		if !has_failed {
-			return
-		}
-
-		// let's slash registered relayer
-		RelayersPallet::<T>::slash_and_deregister(
-			relayer,
-			ExplicitOrAccountParams::Explicit(SlashAccount::get()),
-		);
-	}
-}
-
-/// Wrapper for the bridge parachains pallet that checks calls for obsolete submissions
-/// and also boosts transaction priority if it has submitted by registered relayer.
-/// The boost is computed as
-/// `(BundledHeaderNumber - 1 - BestKnownHeaderNumber) * Priority::get()`.
-/// The boost is only applied if submitter has active registration in the relayers
-/// pallet.
-pub struct CheckAndBoostBridgeParachainsTransactions<T, RefPara, Priority, SlashAccount>(
-	PhantomData<(T, RefPara, Priority, SlashAccount)>,
-);
-
-impl<T, RefPara, Priority: Get<TransactionPriority>, SlashAccount: Get<T::AccountId>>
-	BridgeRuntimeFilterCall<T::AccountId, T::RuntimeCall>
-	for CheckAndBoostBridgeParachainsTransactions<T, RefPara, Priority, SlashAccount>
-where
-	T: pallet_bridge_relayers::Config + pallet_bridge_parachains::Config<RefPara::Instance>,
-	RefPara: RefundableParachainId,
-	T::RuntimeCall: ParachainsCallSubtype<T, RefPara::Instance>,
-{
-	// bridged header number, bundled in transaction
-	type ToPostDispatch = Option<SubmitParachainHeadsInfo>;
-
-	fn validate(
-		who: &T::AccountId,
-		call: &T::RuntimeCall,
-	) -> (Self::ToPostDispatch, TransactionValidity) {
-		match ParachainsCallSubtype::<T, RefPara::Instance>::check_obsolete_submit_parachain_heads(
-			call,
-		) {
-			Ok(Some(our_tx)) if our_tx.base.para_id.0 == RefPara::BridgedChain::PARACHAIN_ID => {
-				let to_post_dispatch = Some(our_tx.base);
-				let total_priority_boost =
-					compute_priority_boost::<T, _, Priority>(&who, our_tx.improved_by);
-				(
-					to_post_dispatch,
-					ValidTransactionBuilder::default().priority(total_priority_boost).build(),
-				)
-			},
-			Ok(_) => (None, ValidTransactionBuilder::default().build()),
-			Err(e) => (None, Err(e)),
-		}
-	}
-
-	fn post_dispatch(relayer: &T::AccountId, has_failed: bool, maybe_update: Self::ToPostDispatch) {
-		// we are only interested in associated pallet submissions
-		let Some(update) = maybe_update else { return };
-		// we are only interested in failed or unneeded transactions
-		let has_failed = has_failed ||
-			!SubmitParachainHeadsHelper::<T, RefPara::Instance>::was_successful(&update);
-
-		if !has_failed {
-			return
-		}
-
-		// let's slash registered relayer
-		RelayersPallet::<T>::slash_and_deregister(
-			relayer,
-			ExplicitOrAccountParams::Explicit(SlashAccount::get()),
-		);
-	}
-}
+// TODO:(bridges-v2) - most of that stuff was introduced with free header execution: https://github.com/paritytech/polkadot-sdk/pull/4102
+// /// Wrapper for the bridge GRANDPA pallet that checks calls for obsolete submissions
+// /// and also boosts transaction priority if it has submitted by registered relayer.
+// /// The boost is computed as
+// /// `(BundledHeaderNumber - 1 - BestFinalizedHeaderNumber) * Priority::get()`.
+// /// The boost is only applied if submitter has active registration in the relayers
+// /// pallet.
+// pub struct CheckAndBoostBridgeGrandpaTransactions<T, I, Priority, SlashAccount>(
+// 	PhantomData<(T, I, Priority, SlashAccount)>,
+// );
+//
+// impl<T, I: 'static, Priority: Get<TransactionPriority>, SlashAccount: Get<T::AccountId>>
+// 	BridgeRuntimeFilterCall<T::AccountId, T::RuntimeCall>
+// 	for CheckAndBoostBridgeGrandpaTransactions<T, I, Priority, SlashAccount>
+// where
+// 	T: pallet_bridge_relayers::Config + pallet_bridge_grandpa::Config<I>,
+// 	T::RuntimeCall: GrandpaCallSubType<T, I>,
+// {
+// 	// bridged header number, bundled in transaction
+// 	type ToPostDispatch = Option<BridgedBlockNumber<T, I>>;
+//
+// 	fn validate(
+// 		who: &T::AccountId,
+// 		call: &T::RuntimeCall,
+// 	) -> (Self::ToPostDispatch, TransactionValidity) {
+// 		match GrandpaCallSubType::<T, I>::check_obsolete_submit_finality_proof(call) {
+// 			Ok(Some(our_tx)) => {
+// 				let to_post_dispatch = Some(our_tx.base.block_number);
+// 				let total_priority_boost =
+// 					compute_priority_boost::<T, _, Priority>(who, our_tx.improved_by);
+// 				(
+// 					to_post_dispatch,
+// 					ValidTransactionBuilder::default().priority(total_priority_boost).build(),
+// 				)
+// 			},
+// 			Ok(None) => (None, ValidTransactionBuilder::default().build()),
+// 			Err(e) => (None, Err(e)),
+// 		}
+// 	}
+//
+// 	fn post_dispatch(
+// 		relayer: &T::AccountId,
+// 		has_failed: bool,
+// 		bundled_block_number: Self::ToPostDispatch,
+// 	) {
+// 		// we are only interested in associated pallet submissions
+// 		let Some(bundled_block_number) = bundled_block_number else { return };
+// 		// we are only interested in failed or unneeded transactions
+// 		let has_failed =
+// 			has_failed || !SubmitFinalityProofHelper::<T, I>::was_successful(bundled_block_number);
+//
+// 		if !has_failed {
+// 			return
+// 		}
+//
+// 		// let's slash registered relayer
+// 		RelayersPallet::<T>::slash_and_deregister(
+// 			relayer,
+// 			ExplicitOrAccountParams::Explicit(SlashAccount::get()),
+// 		);
+// 	}
+// }
+//
+// /// Wrapper for the bridge parachains pallet that checks calls for obsolete submissions
+// /// and also boosts transaction priority if it has submitted by registered relayer.
+// /// The boost is computed as
+// /// `(BundledHeaderNumber - 1 - BestKnownHeaderNumber) * Priority::get()`.
+// /// The boost is only applied if submitter has active registration in the relayers
+// /// pallet.
+// pub struct CheckAndBoostBridgeParachainsTransactions<T, RefPara, Priority, SlashAccount>(
+// 	PhantomData<(T, RefPara, Priority, SlashAccount)>,
+// );
+//
+// impl<T, RefPara, Priority: Get<TransactionPriority>, SlashAccount: Get<T::AccountId>>
+// 	BridgeRuntimeFilterCall<T::AccountId, T::RuntimeCall>
+// 	for CheckAndBoostBridgeParachainsTransactions<T, RefPara, Priority, SlashAccount>
+// where
+// 	T: pallet_bridge_relayers::Config + pallet_bridge_parachains::Config<RefPara::Instance>,
+// 	RefPara: RefundableParachainId,
+// 	T::RuntimeCall: ParachainsCallSubtype<T, RefPara::Instance>,
+// {
+// 	// bridged header number, bundled in transaction
+// 	type ToPostDispatch = Option<SubmitParachainHeadsInfo>;
+//
+// 	fn validate(
+// 		who: &T::AccountId,
+// 		call: &T::RuntimeCall,
+// 	) -> (Self::ToPostDispatch, TransactionValidity) {
+// 		match ParachainsCallSubtype::<T, RefPara::Instance>::check_obsolete_submit_parachain_heads(
+// 			call,
+// 		) {
+// 			Ok(Some(our_tx)) if our_tx.base.para_id.0 == RefPara::BridgedChain::PARACHAIN_ID => {
+// 				let to_post_dispatch = Some(our_tx.base);
+// 				let total_priority_boost =
+// 					compute_priority_boost::<T, _, Priority>(&who, our_tx.improved_by);
+// 				(
+// 					to_post_dispatch,
+// 					ValidTransactionBuilder::default().priority(total_priority_boost).build(),
+// 				)
+// 			},
+// 			Ok(_) => (None, ValidTransactionBuilder::default().build()),
+// 			Err(e) => (None, Err(e)),
+// 		}
+// 	}
+//
+// 	fn post_dispatch(relayer: &T::AccountId, has_failed: bool, maybe_update: Self::ToPostDispatch) {
+// 		// we are only interested in associated pallet submissions
+// 		let Some(update) = maybe_update else { return };
+// 		// we are only interested in failed or unneeded transactions
+// 		let has_failed = has_failed ||
+// 			!SubmitParachainHeadsHelper::<T, RefPara::Instance>::was_successful(&update);
+//
+// 		if !has_failed {
+// 			return
+// 		}
+//
+// 		// let's slash registered relayer
+// 		RelayersPallet::<T>::slash_and_deregister(
+// 			relayer,
+// 			ExplicitOrAccountParams::Explicit(SlashAccount::get()),
+// 		);
+// 	}
+// }
 
 impl<T, I: 'static> BridgeRuntimeFilterCall<T::AccountId, T::RuntimeCall>
 	for pallet_bridge_grandpa::Pallet<T, I>
@@ -219,24 +210,25 @@ where
 	}
 }
 
+// TODO:(bridges-v2) - most of that stuff was introduced with free header execution: https://github.com/paritytech/polkadot-sdk/pull/4102
 /// Computes priority boost that improved known header by `improved_by`
-fn compute_priority_boost<T, N, Priority>(
-	relayer: &T::AccountId,
-	improved_by: N,
-) -> TransactionPriority
-where
-	T: pallet_bridge_relayers::Config,
-	N: UniqueSaturatedInto<TransactionPriority>,
-	Priority: Get<TransactionPriority>,
-{
-	// we only boost priority if relayer has staked required balance
-	let is_relayer_registration_active = RelayersPallet::<T>::is_registration_active(relayer);
-	// if tx improves by just one, there's no need to bump its priority
-	let improved_by: TransactionPriority = improved_by.unique_saturated_into().saturating_sub(1);
-	// if relayer is registered, for every skipped header we improve by `Priority`
-	let boost_per_header = if is_relayer_registration_active { Priority::get() } else { 0 };
-	improved_by.saturating_mul(boost_per_header)
-}
+// fn compute_priority_boost<T, N, Priority>(
+// 	relayer: &T::AccountId,
+// 	improved_by: N,
+// ) -> TransactionPriority
+// where
+// 	T: pallet_bridge_relayers::Config,
+// 	N: UniqueSaturatedInto<TransactionPriority>,
+// 	Priority: Get<TransactionPriority>,
+// {
+// 	// we only boost priority if relayer has staked required balance
+// 	let is_relayer_registration_active = RelayersPallet::<T>::is_registration_active(relayer);
+// 	// if tx improves by just one, there's no need to bump its priority
+// 	let improved_by: TransactionPriority = improved_by.unique_saturated_into().saturating_sub(1);
+// 	// if relayer is registered, for every skipped header we improve by `Priority`
+// 	let boost_per_header = if is_relayer_registration_active { Priority::get() } else { 0 };
+// 	improved_by.saturating_mul(boost_per_header)
+// }
 
 /// Declares a runtime-specific `BridgeRejectObsoleteHeadersAndMessages` signed extension.
 ///
@@ -354,21 +346,10 @@ macro_rules! generate_bridge_reject_obsolete_headers_and_messages {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{
-		extensions::refund_relayer_extension::{
-			tests::{
-				initialize_environment, relayer_account_at_this_chain,
-				submit_parachain_head_call_ex, submit_relay_header_call_ex,
-			},
-			RefundableParachain,
-		},
-		mock::*,
-	};
-	use bp_polkadot_core::parachains::ParaId;
-	use bp_runtime::HeaderId;
+	use crate::mock::*;
 	use frame_support::{assert_err, assert_ok};
 	use sp_runtime::{
-		traits::{ConstU64, SignedExtension},
+		traits::SignedExtension,
 		transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
 		DispatchError,
 	};
@@ -527,151 +508,152 @@ mod tests {
 		pub SlashDestination: ThisChainAccountId = 42;
 	}
 
-	type BridgeGrandpaWrapper =
-		CheckAndBoostBridgeGrandpaTransactions<TestRuntime, (), ConstU64<1_000>, SlashDestination>;
-
-	#[test]
-	fn grandpa_wrapper_does_not_boost_extensions_for_unregistered_relayer() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-
-			let priority_boost = BridgeGrandpaWrapper::validate(
-				&relayer_account_at_this_chain(),
-				&submit_relay_header_call_ex(200),
-			)
-			.1
-			.unwrap()
-			.priority;
-			assert_eq!(priority_boost, 0);
-		})
-	}
-
-	#[test]
-	fn grandpa_wrapper_boosts_extensions_for_registered_relayer() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-			BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
-				.unwrap();
-
-			let priority_boost = BridgeGrandpaWrapper::validate(
-				&relayer_account_at_this_chain(),
-				&submit_relay_header_call_ex(200),
-			)
-			.1
-			.unwrap()
-			.priority;
-			assert_eq!(priority_boost, 99_000);
-		})
-	}
-
-	#[test]
-	fn grandpa_wrapper_slashes_registered_relayer_if_transaction_fails() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-			BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
-				.unwrap();
-
-			assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-			BridgeGrandpaWrapper::post_dispatch(&relayer_account_at_this_chain(), true, Some(150));
-			assert!(!BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-		})
-	}
-
-	#[test]
-	fn grandpa_wrapper_does_not_slash_registered_relayer_if_transaction_succeeds() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-			BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
-				.unwrap();
-
-			assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-			BridgeGrandpaWrapper::post_dispatch(&relayer_account_at_this_chain(), false, Some(100));
-			assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-		})
-	}
-
-	type BridgeParachainsWrapper = CheckAndBoostBridgeParachainsTransactions<
-		TestRuntime,
-		RefundableParachain<(), BridgedUnderlyingParachain>,
-		ConstU64<1_000>,
-		SlashDestination,
-	>;
-
-	#[test]
-	fn parachains_wrapper_does_not_boost_extensions_for_unregistered_relayer() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-
-			let priority_boost = BridgeParachainsWrapper::validate(
-				&relayer_account_at_this_chain(),
-				&submit_parachain_head_call_ex(200),
-			)
-			.1
-			.unwrap()
-			.priority;
-			assert_eq!(priority_boost, 0);
-		})
-	}
-
-	#[test]
-	fn parachains_wrapper_boosts_extensions_for_registered_relayer() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-			BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
-				.unwrap();
-
-			let priority_boost = BridgeParachainsWrapper::validate(
-				&relayer_account_at_this_chain(),
-				&submit_parachain_head_call_ex(200),
-			)
-			.1
-			.unwrap()
-			.priority;
-			assert_eq!(priority_boost, 99_000);
-		})
-	}
-
-	#[test]
-	fn parachains_wrapper_slashes_registered_relayer_if_transaction_fails() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-			BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
-				.unwrap();
-
-			assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-			BridgeParachainsWrapper::post_dispatch(
-				&relayer_account_at_this_chain(),
-				true,
-				Some(SubmitParachainHeadsInfo {
-					at_relay_block: HeaderId(150, Default::default()),
-					para_id: ParaId(BridgedUnderlyingParachain::PARACHAIN_ID),
-					para_head_hash: [150u8; 32].into(),
-					is_free_execution_expected: false,
-				}),
-			);
-			assert!(!BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-		})
-	}
-
-	#[test]
-	fn parachains_wrapper_does_not_slash_registered_relayer_if_transaction_succeeds() {
-		run_test(|| {
-			initialize_environment(100, 100, 100);
-			BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
-				.unwrap();
-
-			assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-			BridgeParachainsWrapper::post_dispatch(
-				&relayer_account_at_this_chain(),
-				false,
-				Some(SubmitParachainHeadsInfo {
-					at_relay_block: HeaderId(100, Default::default()),
-					para_id: ParaId(BridgedUnderlyingParachain::PARACHAIN_ID),
-					para_head_hash: [100u8; 32].into(),
-					is_free_execution_expected: false,
-				}),
-			);
-			assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
-		})
-	}
+	// TODO:(bridges-v2) - most of that stuff was introduced with free header execution: https://github.com/paritytech/polkadot-sdk/pull/4102
+	// type BridgeGrandpaWrapper =
+	// 	CheckAndBoostBridgeGrandpaTransactions<TestRuntime, (), ConstU64<1_000>, SlashDestination>;
+	//
+	// #[test]
+	// fn grandpa_wrapper_does_not_boost_extensions_for_unregistered_relayer() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	//
+	// 		let priority_boost = BridgeGrandpaWrapper::validate(
+	// 			&relayer_account_at_this_chain(),
+	// 			&submit_relay_header_call_ex(200),
+	// 		)
+	// 		.1
+	// 		.unwrap()
+	// 		.priority;
+	// 		assert_eq!(priority_boost, 0);
+	// 	})
+	// }
+	//
+	// #[test]
+	// fn grandpa_wrapper_boosts_extensions_for_registered_relayer() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	// 		BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
+	// 			.unwrap();
+	//
+	// 		let priority_boost = BridgeGrandpaWrapper::validate(
+	// 			&relayer_account_at_this_chain(),
+	// 			&submit_relay_header_call_ex(200),
+	// 		)
+	// 		.1
+	// 		.unwrap()
+	// 		.priority;
+	// 		assert_eq!(priority_boost, 99_000);
+	// 	})
+	// }
+	//
+	// #[test]
+	// fn grandpa_wrapper_slashes_registered_relayer_if_transaction_fails() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	// 		BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
+	// 			.unwrap();
+	//
+	// 		assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 		BridgeGrandpaWrapper::post_dispatch(&relayer_account_at_this_chain(), true, Some(150));
+	// 		assert!(!BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 	})
+	// }
+	//
+	// #[test]
+	// fn grandpa_wrapper_does_not_slash_registered_relayer_if_transaction_succeeds() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	// 		BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
+	// 			.unwrap();
+	//
+	// 		assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 		BridgeGrandpaWrapper::post_dispatch(&relayer_account_at_this_chain(), false, Some(100));
+	// 		assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 	})
+	// }
+	//
+	// type BridgeParachainsWrapper = CheckAndBoostBridgeParachainsTransactions<
+	// 	TestRuntime,
+	// 	RefundableParachain<(), BridgedUnderlyingParachain>,
+	// 	ConstU64<1_000>,
+	// 	SlashDestination,
+	// >;
+	//
+	// #[test]
+	// fn parachains_wrapper_does_not_boost_extensions_for_unregistered_relayer() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	//
+	// 		let priority_boost = BridgeParachainsWrapper::validate(
+	// 			&relayer_account_at_this_chain(),
+	// 			&submit_parachain_head_call_ex(200),
+	// 		)
+	// 		.1
+	// 		.unwrap()
+	// 		.priority;
+	// 		assert_eq!(priority_boost, 0);
+	// 	})
+	// }
+	//
+	// #[test]
+	// fn parachains_wrapper_boosts_extensions_for_registered_relayer() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	// 		BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
+	// 			.unwrap();
+	//
+	// 		let priority_boost = BridgeParachainsWrapper::validate(
+	// 			&relayer_account_at_this_chain(),
+	// 			&submit_parachain_head_call_ex(200),
+	// 		)
+	// 		.1
+	// 		.unwrap()
+	// 		.priority;
+	// 		assert_eq!(priority_boost, 99_000);
+	// 	})
+	// }
+	//
+	// #[test]
+	// fn parachains_wrapper_slashes_registered_relayer_if_transaction_fails() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	// 		BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
+	// 			.unwrap();
+	//
+	// 		assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 		BridgeParachainsWrapper::post_dispatch(
+	// 			&relayer_account_at_this_chain(),
+	// 			true,
+	// 			Some(SubmitParachainHeadsInfo {
+	// 				at_relay_block: HeaderId(150, Default::default()),
+	// 				para_id: ParaId(BridgedUnderlyingParachain::PARACHAIN_ID),
+	// 				para_head_hash: [150u8; 32].into(),
+	// 				is_free_execution_expected: false,
+	// 			}),
+	// 		);
+	// 		assert!(!BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 	})
+	// }
+	//
+	// #[test]
+	// fn parachains_wrapper_does_not_slash_registered_relayer_if_transaction_succeeds() {
+	// 	run_test(|| {
+	// 		initialize_environment(100, 100, 100);
+	// 		BridgeRelayers::register(RuntimeOrigin::signed(relayer_account_at_this_chain()), 1000)
+	// 			.unwrap();
+	//
+	// 		assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 		BridgeParachainsWrapper::post_dispatch(
+	// 			&relayer_account_at_this_chain(),
+	// 			false,
+	// 			Some(SubmitParachainHeadsInfo {
+	// 				at_relay_block: HeaderId(100, Default::default()),
+	// 				para_id: ParaId(BridgedUnderlyingParachain::PARACHAIN_ID),
+	// 				para_head_hash: [100u8; 32].into(),
+	// 				is_free_execution_expected: false,
+	// 			}),
+	// 		);
+	// 		assert!(BridgeRelayers::is_registration_active(&relayer_account_at_this_chain()));
+	// 	})
+	// }
 }
