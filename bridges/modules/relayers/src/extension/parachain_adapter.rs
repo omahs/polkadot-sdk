@@ -90,7 +90,6 @@ where
 {
 	type IdProvider = ID;
 	type Runtime = R;
-	type BatchCallUnpacker = BCU;
 	type BridgeMessagesPalletInstance = MI;
 	type PriorityBoostPerMessage = P;
 	type Reward = R::Reward;
@@ -103,8 +102,7 @@ where
 		Option<ExtensionCallInfo<Self::RemoteGrandpaChainBlockNumber>>,
 		TransactionValidityError,
 	> {
-		log::trace!(target: LOG_TARGET, "=== call: {:?}", call);
-		let calls = Self::BatchCallUnpacker::unpack(call, 3);
+		let calls = BCU::unpack(call, 3);
 		let total_calls = calls.len();
 		let mut calls = calls.into_iter().map(Self::check_obsolete_parsed_call).rev();
 
@@ -117,7 +115,6 @@ where
 		});
 		let relay_finality_call =
 			calls.next().transpose()?.and_then(|c| c.submit_finality_proof_info());
-		log::trace!(target: LOG_TARGET, "=== {} {:?} {:?} {:?}", total_calls, relay_finality_call, para_finality_call, msgs_call);
 		Ok(match (total_calls, relay_finality_call, para_finality_call, msgs_call) {
 			(3, Some(relay_finality_call), Some(para_finality_call), Some(msgs_call)) =>
 				Some(ExtensionCallInfo::AllFinalityAndMsgs(

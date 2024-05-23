@@ -51,10 +51,12 @@ use sp_runtime::{
 use sp_std::{fmt::Debug, marker::PhantomData};
 
 pub use grandpa_adapter::WithGrandpaChainExtensionConfig;
+pub use messages_adapter::MessagesExtensionConfig;
 pub use parachain_adapter::WithParachainExtensionConfig;
 pub use priority::*;
 
 mod grandpa_adapter;
+mod messages_adapter;
 mod parachain_adapter;
 mod priority;
 

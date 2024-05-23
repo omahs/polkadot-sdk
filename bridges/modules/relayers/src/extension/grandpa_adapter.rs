@@ -84,7 +84,6 @@ where
 {
 	type IdProvider = ID;
 	type Runtime = R;
-	type BatchCallUnpacker = BCU;
 	type BridgeMessagesPalletInstance = MI;
 	type PriorityBoostPerMessage = P;
 	type Reward = R::Reward;
@@ -96,7 +95,7 @@ where
 		Option<ExtensionCallInfo<Self::RemoteGrandpaChainBlockNumber>>,
 		TransactionValidityError,
 	> {
-		let calls = Self::BatchCallUnpacker::unpack(call, 2);
+		let calls = BCU::unpack(call, 2);
 		let total_calls = calls.len();
 		let mut calls = calls.into_iter().map(Self::check_obsolete_parsed_call).rev();
 

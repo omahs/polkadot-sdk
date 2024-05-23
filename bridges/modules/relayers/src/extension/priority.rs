@@ -26,6 +26,7 @@ use frame_support::traits::Get;
 use sp_runtime::transaction_validity::TransactionPriority;
 
 // reexport everything from `integrity_tests` module
+#[allow(unused_imports)]
 pub use integrity_tests::*;
 
 /// We'll deal with different bridge items here - messages, headers, ...
@@ -237,7 +238,12 @@ mod integrity_tests {
 		/// almost the same priority if we'll add `tip_boost_per_header` tip to the `TX1`. We want
 		/// to be sure that if we add plain `PriorityBoostPerHeader` priority to `TX1`, the priority
 		/// will be close to `TX2` as well.
-		pub fn ensure_priority_boost_is_sane<Runtime, ParachainsInstance, Para, PriorityBoostPerHeader>(
+		pub fn ensure_priority_boost_is_sane<
+			Runtime,
+			ParachainsInstance,
+			Para,
+			PriorityBoostPerHeader,
+		>(
 			tip_boost_per_header: BalanceOf<Runtime>,
 		) where
 			Runtime: pallet_transaction_payment::Config
@@ -271,7 +277,11 @@ mod integrity_tests {
 
 		/// Estimate parachain header delivery transaction priority.
 		#[cfg(feature = "integrity-test")]
-		fn estimate_parachain_header_submit_transaction_priority<Runtime, ParachainsInstance, Para>(
+		fn estimate_parachain_header_submit_transaction_priority<
+			Runtime,
+			ParachainsInstance,
+			Para,
+		>(
 			tip: BalanceOf<Runtime>,
 		) -> TransactionPriority
 		where
