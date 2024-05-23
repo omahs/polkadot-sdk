@@ -17,5 +17,3 @@
 //! Bridge-specific transaction extensions.
 
 pub mod check_obsolete_extension;
-// TODO:(bridges-v2) - most of that stuff was introduced with free header execution: https://github.com/paritytech/polkadot-sdk/pull/4102, migrate to the `modules/relayers/src/extension`
-// pub mod priority_calculator;
